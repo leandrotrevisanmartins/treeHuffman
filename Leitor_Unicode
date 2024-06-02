@@ -1,0 +1,45 @@
+//implementação do leitor de arquivos unicode, com contagem de caracteres
+#include <iostream>
+#include <fstream>
+#include <locale> //para definir configurações específicas relacionadas à localidade, como formatos de data, hora e codificação de caracteres. 
+#include <codecvt> //para realizar a conversão entre diferentes conjuntos de caracteres
+
+//using namespace std;
+
+int main(){
+    std::wstring nome;
+    std::wcout << L"Digite o nome do arquivo: ";
+    std::wcin >> nome;
+
+    // Prefixar o caminho do arquivo com L"../"
+    std::wstring caminho = L"../" + nome;
+
+
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter; //converter entre tipos de string larga (wstring) e tipos de string estreita (string)
+    std::string arquivo = converter.to_bytes(caminho); //converter o wstring caminho em uma string arquivo.
+
+    std::wifstream arq(arquivo);
+    arq.imbue(std::locale(arq.getloc(), new std::codecvt_utf8<wchar_t>)); //define a localidade do objeto arq para usar a codificação UTF-8
+
+    if(!arq){
+        std::wcout << L"Erro ao abrir o arquivo\n";
+        return 1;
+    }
+
+    int cont[65536] = {};
+    wchar_t ch;
+
+    while(arq.get(ch)){
+        cont[int(ch)]++;
+    }
+    //para teste do código até o momento
+    for(int i = 0; i < 65536; i++){
+        if(cont[i] > 0){
+            std::wcout << wchar_t(i) << L";" << cont[i] << std::endl;
+        }
+    }
+
+    arq.close();
+
+    return 0;
+}
