@@ -1,0 +1,134 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <queue>
+#include <codecvt>
+#include <locale>
+#include <functional>
+
+namespace tree {
+    struct node {
+        wchar_t value;
+        int frequency;
+        node* left;
+        node* right;
+    };
+
+    // Função de comparação para a fila de prioridade
+    struct compare {
+        bool operator()(node* l, node* r) {
+            return l->frequency > r->frequency; // Agora ordena da maior para a menor frequência
+        }
+    };
+
+    // Função para criar um nó de Huffman
+    node* create_node(wchar_t value, int frequency) {
+        node* p = new node;
+        p->value = value;
+        p->frequency = frequency;
+        p->left = p->right = nullptr;
+        return p;
+    }
+
+    // Função para construir a árvore de Huffman inserindo os nós em ordem decrescente de frequência
+    node* build_huffman_tree(int* frequencies) {
+        std::priority_queue<node*, std::vector<node*>, compare> pq;
+
+        // Criar nós para caracteres não nulos
+        for (int i = 0; i < 65536; i++) {
+            if (frequencies[i] != 0) {
+                pq.push(create_node(static_cast<wchar_t>(i), frequencies[i]));
+            }
+        }
+
+        // Construir a árvore de Huffman
+        while (pq.size() > 1) {
+            node* left = pq.top(); pq.pop();
+            node* right = pq.top(); pq.pop();
+            node* new_node = create_node(L'\0', left->frequency + right->frequency);
+            new_node->left = left;
+            new_node->right = right;
+            pq.push(new_node);
+        }
+
+        // Retornar a raiz da árvore de Huffman
+        return pq.top();
+    }
+
+    // Função para liberar a memória alocada para a árvore de Huffman
+    void delete_tree(node* root) {
+        if (root) {
+            delete_tree(root->left);
+            delete_tree(root->right);
+            delete root;
+        }
+    }
+
+
+    // Função auxiliar para exibir a árvore de Huffman
+    void show(node* root) {
+        if (!root)
+            return;
+
+        std::queue<node*> q;
+        q.push(root);
+
+        while (!q.empty()) {
+            int level_size = q.size();
+            for (int i = 0; i < level_size; i++) {
+                node* current = q.front();
+                q.pop();
+                std::wcout << current->value << L" (" << current->frequency << L") ";
+
+                if (current->left)
+                    q.push(current->left);
+                if (current->right)
+                    q.push(current->right);
+            }
+            std::wcout << std::endl;
+    }
+}
+}
+
+int main(){
+
+    using namespace tree;
+    std::wstring nome;
+    std::wcout << L"Digite o nome do arquivo: ";
+    std::wcin >> nome;
+
+    // Prefixar o caminho do arquivo com L"../"
+    std::wstring caminho = L"../" + nome;
+
+
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter; //converter entre tipos de string larga (wstring) e tipos de string estreita (string)
+    std::string arquivo = converter.to_bytes(caminho); //converter o wstring caminho em uma string arquivo.
+
+    std::wifstream arq(arquivo);
+    arq.imbue(std::locale(arq.getloc(), new std::codecvt_utf8<wchar_t>)); //define a localidade do objeto arq para usar a codificação UTF-8
+
+    if(!arq){
+        std::wcout << L"Erro ao abrir o arquivo\n";
+        return 1;
+    }
+
+    int cont[65536] = {};
+    wchar_t ch;
+
+    while(arq.get(ch)){
+        cont[int(ch)]++;
+    }
+    
+    arq.close();
+
+    // Construir a árvore de Huffman
+    node* huffman_tree = build_huffman_tree(cont);
+
+    // Exibir a árvore Huffman
+    show(huffman_tree);
+
+    // Limpar a memória alocada para a árvore de Huffman
+    delete_tree(huffman_tree);
+
+    return 0;
+}
