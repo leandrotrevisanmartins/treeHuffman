@@ -1,0 +1,241 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <queue>
+#include <codecvt>
+#include <locale>
+#include <vector>
+#include <cwctype>
+#include <unordered_map>
+#include <bitset>
+#include <sstream>
+
+namespace tree {
+    struct node {
+        wchar_t value;
+        int frequency;
+        node* left;
+        node* right;
+    };
+
+    struct compare {
+        bool operator()(node* l, node* r) {
+            return l->frequency > r->frequency;
+        }
+    };
+
+    node* create_node(wchar_t value, int frequency) {
+        node* p = new node;
+        p->value = value;
+        p->frequency = frequency;
+        p->left = p->right = nullptr;
+        return p;
+    }
+
+    node* build_huffman_tree(int* frequencies) {
+        std::priority_queue<node*, std::vector<node*>, compare> pq;
+
+        for (int i = 0; i < 65536; i++) {
+            wchar_t character = static_cast<wchar_t>(i);
+            if (frequencies[i] != 0 && (std::iswprint(character) || character == L' ')) {
+                pq.push(create_node(character, frequencies[i]));
+            }
+        }
+
+        while (pq.size() > 1) {
+            node* left = pq.top(); pq.pop();
+            node* right = pq.top(); pq.pop();
+            node* new_node = create_node(L'\0', left->frequency + right->frequency);
+            new_node->left = left;
+            new_node->right = right;
+            pq.push(new_node);
+        }
+
+        return pq.empty() ? nullptr : pq.top();
+    }
+
+    void delete_tree(node* root) {
+        if (root) {
+            delete_tree(root->left);
+            delete_tree(root->right);
+            delete root;
+        }
+    }
+
+    void generate_codes(node* root, const std::wstring& prefix, std::unordered_map<wchar_t, std::wstring>& codes) {
+        if (!root) return;
+        if (!root->left && !root->right) {
+            codes[root->value] = prefix;
+        }
+        generate_codes(root->left, prefix + L"0", codes);
+        generate_codes(root->right, prefix + L"1", codes);
+    }
+
+    void show(node* root) {
+        if (!root) return;
+        std::queue<node*> q;
+        q.push(root);
+        while (!q.empty()) {
+            int level_size = q.size();
+            for (int i = 0; i < level_size; i++) {
+                node* current = q.front();
+                q.pop();
+                if (!current->left && !current->right) {
+                    if (std::iswprint(current->value) || current->value == L' ') {
+                        std::wcout << current->value << L" (" << current->frequency << L") ";
+                    }
+                }
+                if (current->left) q.push(current->left);
+                if (current->right) q.push(current->right);
+            }
+            std::wcout << std::endl;
+        }
+    }
+
+    void show_codes_with_frequencies(const std::unordered_map<wchar_t, std::wstring>& codes, int* frequencies) {
+        std::wcout << L"Caractere - Frequência - Código\n";
+        for (const auto& pair : codes) {
+            wchar_t character = pair.first;
+            std::wstring code = pair.second;
+            int frequency = frequencies[character];
+            std::wcout << character << L" - " << frequency << L" - " << code << std::endl;
+        }
+    }
+}
+
+std::wstring compress_file(const std::wstring& text, const std::unordered_map<wchar_t, std::wstring>& huffman_codes) {
+    std::wstring compressed_text;
+    for (wchar_t ch : text) {
+        if (huffman_codes.find(ch) != huffman_codes.end()) {
+            compressed_text += huffman_codes.at(ch);
+        }
+    }
+    return compressed_text;
+}
+
+std::vector<uint8_t> pack_bits(const std::wstring& bit_string) {
+    std::vector<uint8_t> byte_array;
+    size_t length = bit_string.size();
+    for (size_t i = 0; i < length; i += 8) {
+        std::bitset<8> bits;
+        for (size_t j = 0; j < 8 && (i + j) < length; ++j) {
+            bits[j] = bit_string[i + j] == L'1';
+        }
+        byte_array.push_back(static_cast<uint8_t>(bits.to_ulong()));
+    }
+    return byte_array;
+}
+
+std::streamsize get_file_size(const std::wstring& filename) {
+    // Converter a string ampla para string estreita
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+    std::string filename_str = converter.to_bytes(filename);
+
+    // Abrir o arquivo e obter o tamanho
+    std::ifstream file(filename_str, std::ios::binary | std::ios::ate);
+    return file.tellg();
+}
+
+    void save_compressed_file(const std::wstring& filename, const std::wstring& bit_string, const std::unordered_map<wchar_t, std::wstring>& huffman_codes, const std::wstring& original_text) {
+        std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+        std::string output_filename = converter.to_bytes(filename);
+        std::ofstream output_file(output_filename, std::ios::binary);
+
+        if (!output_file.is_open()) {
+            std::wcerr << L"Erro ao abrir o arquivo para escrita: " << filename << std::endl;
+            return;
+        }
+
+        // Escrever a tabela de códigos
+        size_t codes_size = huffman_codes.size();
+        output_file.write(reinterpret_cast<const char*>(&codes_size), sizeof(codes_size));
+
+        for (const auto& pair : huffman_codes) {
+            wchar_t character = pair.first;
+            std::wstring code = pair.second;
+            size_t code_length = code.size();
+
+            output_file.write(reinterpret_cast<const char*>(&character), sizeof(character));
+            output_file.write(reinterpret_cast<const char*>(&code_length), sizeof(code_length));
+            output_file.write(reinterpret_cast<const char*>(code.data()), code_length * sizeof(wchar_t));
+    }
+
+        // Escrever o texto comprimido
+        std::vector<uint8_t> packed_bits = pack_bits(bit_string);
+        size_t packed_length = packed_bits.size();
+        output_file.write(reinterpret_cast<const char*>(&packed_length), sizeof(packed_length));
+        output_file.write(reinterpret_cast<const char*>(packed_bits.data()), packed_length);
+
+        // Comparar tamanho do arquivo comprimido e do original
+        std::streamsize compressed_size = output_file.tellp();
+        std::streamsize original_size = original_text.size() * sizeof(wchar_t);
+
+        if (compressed_size >= original_size) {
+            // Salvar o arquivo original se o comprimido não for menor
+            output_file.close();
+            output_file.open(output_filename, std::ios::binary | std::ios::trunc);
+
+            if (!output_file.is_open()) {
+                std::wcerr << L"Erro ao abrir o arquivo para escrita: " << filename << std::endl;
+                return;
+        }
+
+            size_t original_flag = 0; // Flag para indicar que o arquivo é original
+            output_file.write(reinterpret_cast<const char*>(&original_flag), sizeof(original_flag));
+            output_file.write(reinterpret_cast<const char*>(original_text.data()), original_text.size() * sizeof(wchar_t));
+    }
+
+    output_file.close();
+}
+
+int main() {
+    using namespace tree;
+
+    std::wstring nome;
+    std::wcout << L"Digite o nome do arquivo: ";
+    std::wcin >> nome;
+
+    std::wstring caminho = L"../" + nome;
+
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+    std::string arquivo = converter.to_bytes(caminho);
+
+    std::wifstream arq(arquivo);
+    arq.imbue(std::locale(arq.getloc(), new std::codecvt_utf8<wchar_t>));
+
+    if (!arq) {
+        std::wcout << L"Erro ao abrir o arquivo\n";
+        return 1;
+    }
+
+    int cont[65536] = {};
+    std::wstring text;
+    wchar_t ch;
+
+    while (arq.get(ch)) {
+        if (std::iswprint(ch) || ch == L' ') {
+            cont[ch]++;
+            text += ch;
+        }
+    }
+
+    arq.close();
+
+    node* huffman_tree = build_huffman_tree(cont);
+
+    std::wcout << L"\nÁrvore de Huffman (nós folhas):\n";
+    show(huffman_tree);
+
+    std::unordered_map<wchar_t, std::wstring> huffman_codes;
+    generate_codes(huffman_tree, L"", huffman_codes);
+
+    std::wcout << L"\nCódigos de Huffman com Frequências:\n";
+    show_codes_with_frequencies(huffman_codes, cont);
+
+    std::wstring compressed_bits = compress_file(text, huffman_codes);
+    save_compressed_file(L"compressed.huff", compressed_bits, huffman_codes, text);
+
+    delete_tree(huffman_tree);
+
+    return 0;
+}
